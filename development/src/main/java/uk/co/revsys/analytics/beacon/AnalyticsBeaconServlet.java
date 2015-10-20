@@ -7,6 +7,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -19,7 +20,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
 import uk.co.revsys.ripe.client.RipeClient;
 import uk.co.revsys.ripe.client.RipeSearchResult;
 
@@ -30,7 +31,6 @@ public class AnalyticsBeaconServlet extends HttpServlet {
     private KinesisClient kinesisClient;
     private RipeClient ripeClient;
     private String css;
-    private CharsetEncoder encoder;
     private String region;
     private String stream;
 
@@ -58,18 +58,30 @@ public class AnalyticsBeaconServlet extends HttpServlet {
     }
 
     @Override
+    protected void doHead(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        doRequest(req, resp);
+    }
+
+    @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        doRequest(req, resp);
+        resp.getOutputStream().print(css);
+        resp.getOutputStream().flush();
+    }
+
+    protected void doRequest(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         try {
             String accountId = req.getParameter("charset");
             String ipAddress = req.getRemoteAddr();
-            JSONObject data = new JSONObject();
+            HashMap data = new HashMap();
             data.put("accountId", accountId);
             data.put("ipAddress", ipAddress);
             data.put("timestamp", new Date().getTime());
             Enumeration<String> headerNames = req.getHeaderNames();
-            JSONObject headers = new JSONObject();
+            HashMap headers = new LinkedHashMap();
             while (headerNames.hasMoreElements()) {
                 String headerName = headerNames.nextElement();
+                System.out.println("headerName = " + headerName);
                 String headerValue = req.getHeader(headerName);
                 headers.put(headerName, headerValue);
             }
@@ -85,8 +97,8 @@ public class AnalyticsBeaconServlet extends HttpServlet {
             } catch (RuntimeException ex) {
                 log.log(Level.SEVERE, "Unable to get network information", ex);
             }
-            System.out.println(data.toString());
-            PutRecordResult result = kinesisClient.putRecord(region, stream, Math.round(Math.random() * 1000000) + "::beacon", Charset.forName("UTF-8").encode(data.toString()));
+            System.out.println(JSONObject.toJSONString(data));
+            PutRecordResult result = kinesisClient.putRecord(region, stream, Math.round(Math.random() * 1000000) + "::beacon", Charset.forName("UTF-8").encode(JSONObject.toJSONString(data)));
             System.out.println("result = " + result);
         } catch (InvalidKeyException ex) {
             log.log(Level.SEVERE, "Unable to send analytics beacon", ex);
@@ -98,8 +110,8 @@ public class AnalyticsBeaconServlet extends HttpServlet {
             log.log(Level.SEVERE, "Unable to send analytics beacon", ex);
         }
         resp.setContentType("text/css");
-        resp.getOutputStream().print(css);
-        resp.getOutputStream().flush();
+        resp.setHeader("Cache-Control", "no-store, must-revalidate");
+        resp.setDateHeader("Last-Modified", 0);
     }
 
 }
